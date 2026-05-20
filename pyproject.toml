@@ -45,8 +45,8 @@ dev = [
 wikigen = "wikigen.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/your-org/wikigen"
-"Bug Tracker" = "https://github.com/your-org/wikigen/issues"
+Homepage = "https://github.com/birangdev/WikiGen"
+"Bug Tracker" = "https://github.com/birangdev/WikiGen/issues"
 
 [tool.setuptools.packages.find]
 where = ["."]
