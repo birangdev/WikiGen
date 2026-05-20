@@ -1,0 +1,69 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "wikigen"
+version = "0.1.0"
+description = "LLM-powered wiki generator for any codebase"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [
+  { name = "wikigen contributors" },
+]
+keywords = ["wiki", "llm", "documentation", "codebase", "ai"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Documentation",
+  "Topic :: Software Development :: Documentation",
+]
+requires-python = ">=3.11"
+dependencies = [
+  "click>=8.1",
+  "pyyaml>=6.0",
+  "httpx>=0.27",          # for Ollama backend
+]
+
+[project.optional-dependencies]
+claude = ["anthropic>=0.30"]
+openai = ["openai>=1.30"]
+all = ["anthropic>=0.30", "openai>=1.30"]
+dev = [
+  "pytest>=8",
+  "pytest-cov",
+  "mypy",
+  "ruff",
+]
+
+[project.scripts]
+wikigen = "wikigen.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/your-org/wikigen"
+"Bug Tracker" = "https://github.com/your-org/wikigen/issues"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["wikigen*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = false
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
