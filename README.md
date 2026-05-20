@@ -63,7 +63,7 @@ A Claude Code agent can self-document any project it's working in with a single 
 ```bash
 # Agent drops this into the project shell — zero config required
 cd /path/to/project
-pip install "wikigen[claude]" -q
+pip install "wikigen-cli[claude]" -q
 wikigen init
 wikigen ingest
 ```
@@ -101,16 +101,16 @@ The resulting wiki lives next to your code, is committed to git, and stays fresh
 
 ```bash
 # Core (no backend pre-installed)
-pip install wikigen
+pip install wikigen-cli
 
 # With Claude (Anthropic) support
-pip install "wikigen[claude]"
+pip install "wikigen-cli[claude]"
 
 # With OpenAI support
-pip install "wikigen[openai]"
+pip install "wikigen-cli[openai]"
 
 # Everything
-pip install "wikigen[all]"
+pip install "wikigen-cli[all]"
 ```
 
 Requires Python ≥ 3.11.
@@ -263,7 +263,7 @@ wiki:
 ### Claude (Anthropic)
 
 ```bash
-pip install "wikigen[claude]"
+pip install "wikigen-cli[claude]"
 export ANTHROPIC_API_KEY=sk-ant-...
 ```
 
@@ -277,7 +277,7 @@ backend:
 ### OpenAI
 
 ```bash
-pip install "wikigen[openai]"
+pip install "wikigen-cli[openai]"
 export OPENAI_API_KEY=sk-...
 ```
 
