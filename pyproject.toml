@@ -3,13 +3,13 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "wikigen"
+name = "wikigen-cli"
 version = "0.1.0"
 description = "LLM-powered wiki generator for any codebase"
 readme = "README.md"
 license = { text = "MIT" }
 authors = [
-  { name = "wikigen contributors" },
+  { name = "birangdev" },
 ]
 keywords = ["wiki", "llm", "documentation", "codebase", "ai"]
 classifiers = [
