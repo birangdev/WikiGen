@@ -195,7 +195,10 @@ def chunk_file(sf: SourceFile, chunk_size_tokens: int, overlap_tokens: int) -> l
                 end = start + last_nl + 1
 
         chunks.append(chunk)
-        start = end - overlap_chars
+        next_start = end - overlap_chars
+        if next_start <= start:  # guard against infinite loop if overlap >= chunk size
+            next_start = end
+        start = next_start
         if start >= len(text):
             break
 

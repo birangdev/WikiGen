@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 import sys
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -14,7 +13,7 @@ from .cache import HashCache
 from .collector import FileCollector, SourceFile, chunk_file
 from .config import WikigenConfig
 from .prompts import build_context_summary_prompt, build_page_prompt
-from .writer import WikiWriter, page_filename, _slugify
+from .writer import WikiWriter
 
 
 class Updater:

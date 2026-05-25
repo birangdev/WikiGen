@@ -36,7 +36,8 @@ class WikiWriter:
     def write_page(self, section: str, title: str, content: str) -> Path:
         """Write a wiki page to wiki/<section>/<title>.md.
         Returns the written path."""
-        section_dir = self.wiki_dir / _slugify(section)
+        section_slug = _slugify(section) or "general"
+        section_dir = self.wiki_dir / section_slug
         section_dir.mkdir(parents=True, exist_ok=True)
 
         # Convert [[WikiLink]] to [WikiLink](../section/wiki-link.md) if markdown style
@@ -50,6 +51,7 @@ class WikiWriter:
     def write_home(self, content: str) -> Path:
         if self.cfg.link_style == "markdown":
             content = _convert_wikilinks_to_markdown(content)
+        self.wiki_dir.mkdir(parents=True, exist_ok=True)
         path = self.wiki_dir / (page_filename(self.cfg.index_page))
         path.write_text(content, encoding="utf-8")
         return path

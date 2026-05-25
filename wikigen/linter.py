@@ -63,8 +63,8 @@ class Linter:
             content = page.read_text(encoding="utf-8", errors="replace")
             page_slug = page.stem.lower()
 
-            # ── Check front matter ──
-            if not _FRONT_MATTER_RE.search(content):
+            # ── Check front matter (log.md is append-only, exempt) ──
+            if page_slug != "log" and not _FRONT_MATTER_RE.search(content):
                 issues.append(LintIssue("missing_front_matter", page, "No YAML front matter block found."))
 
             # ── Check [[WikiLinks]] ──
@@ -103,7 +103,7 @@ class Linter:
         for page in pages:
             slug = page.stem.lower()
             # Home page is exempt
-            if slug in ("home", "index", "readme"):
+            if slug in ("home", "index", "readme", "log"):
                 continue
             if not incoming.get(slug):
                 issues.append(LintIssue("orphan", page, "No other page links to this page."))

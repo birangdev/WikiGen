@@ -1,0 +1,2 @@
+[console_scripts]
+wikigen = wikigen.cli:main

@@ -313,9 +313,13 @@ Append-only record of all wiki operations.  Never edit past entries.
 WIKIGEN_BEGIN = "<!-- wikigen:begin -->"
 WIKIGEN_END   = "<!-- wikigen:end -->"
 
+# YAML files need comment-style markers so the file stays valid YAML
+YAML_BEGIN = "# wikigen:begin"
+YAML_END   = "# wikigen:end"
+
 
 def _merge_into_file(path: Path, new_section: str) -> tuple[str, str]:
-    """Merge wikigen's section into an existing file.
+    """Merge wikigen's section into an existing Markdown/text file.
 
     Returns (action, final_content) where action is one of:
       "created"  -- file did not exist, written fresh
@@ -346,29 +350,101 @@ def _merge_into_file(path: Path, new_section: str) -> tuple[str, str]:
         return "appended", final
 
 
+def _merge_into_yaml_file(path: Path, new_section: str) -> tuple[str, str]:
+    """Merge wikigen's section into a YAML file using # comment markers.
+
+    HTML comment markers (used by _merge_into_file) would produce invalid YAML.
+    This variant uses '# wikigen:begin' / '# wikigen:end' so the file stays
+    parseable by YAML tools regardless of whether a wikigen section is present.
+    """
+    fenced = YAML_BEGIN + "\n" + new_section.strip() + "\n" + YAML_END + "\n"
+
+    if not path.exists():
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(fenced, encoding="utf-8")
+        return "created", fenced
+
+    existing = path.read_text(encoding="utf-8")
+
+    if YAML_BEGIN in existing:
+        pattern = re.compile(
+            re.escape(YAML_BEGIN) + r".*?" + re.escape(YAML_END),
+            re.DOTALL,
+        )
+        updated = pattern.sub(fenced.strip(), existing)
+        path.write_text(updated, encoding="utf-8")
+        return "updated", updated
+    else:
+        sep = "\n\n" if not existing.endswith("\n\n") else "\n"
+        final = existing.rstrip("\n") + sep + fenced
+        path.write_text(final, encoding="utf-8")
+        return "appended", final
+
+
 
 # ---------------------------------------------------------------------------
 # Writer
 # ---------------------------------------------------------------------------
 
+# Maps --for tool names to the instruction file(s) each tool needs.
+TOOL_FILES: dict[str, list[str]] = {
+    "claude":   ["CLAUDE.md"],
+    "cursor":   [".cursorrules"],
+    "copilot":  [".github/copilot-instructions.md"],
+    "aider":    [".aider.conf.yml"],
+    "windsurf": [".windsurf/rules"],
+}
+
+# Auto-detect: env vars that indicate a specific tool environment.
+_ENV_TOOL_MAP: list[tuple[str, str]] = [
+    ("CLAUDE_CODE", "claude"),
+]
+
+
+def _detect_tool() -> str | None:
+    """Return the tool name if a known environment variable is set."""
+    import os
+    for env_var, tool in _ENV_TOOL_MAP:
+        if os.environ.get(env_var):
+            return tool
+    return None
+
+
 def write_all(
     project_dir: Path,
     wiki_dir: Path,
     project_name: str,
+    for_tool: str | None = None,
 ) -> list[tuple[str, Path, str]]:
-    """Write/merge all agent instruction files.
+    """Write/merge agent instruction files.
+
+    If *for_tool* is given (or auto-detected), only the file(s) relevant to
+    that tool are written.  Pass ``for_tool="all"`` or leave it ``None`` to
+    write every file (original behaviour).
 
     Returns list of (label, path, action) where action is
     'created' | 'appended' | 'updated'.
     """
+    if for_tool is None:
+        for_tool = _detect_tool()  # may still be None → write all
+
     wiki_dir_rel = wiki_dir.relative_to(project_dir) if wiki_dir.is_relative_to(project_dir) else wiki_dir
     wiki_rel = str(wiki_dir_rel)
 
     results: list[tuple[str, Path, str]] = []
 
     def _merge(rel: str, section_content: str, label: str) -> None:
+        if for_tool and for_tool != "all" and rel not in TOOL_FILES.get(for_tool, []):
+            return
         p = project_dir / rel
         action, _ = _merge_into_file(p, section_content)
+        results.append((label, p, action))
+
+    def _merge_yaml(rel: str, section_content: str, label: str) -> None:
+        if for_tool and for_tool != "all" and rel not in TOOL_FILES.get(for_tool, []):
+            return
+        p = project_dir / rel
+        action, _ = _merge_into_yaml_file(p, section_content)
         results.append((label, p, action))
 
     _merge("CLAUDE.md",
@@ -383,19 +459,37 @@ def write_all(
            copilot_instructions(project_name, wiki_rel),
            ".github/copilot-instructions.md (GitHub Copilot)")
 
-    _merge(".aider.conf.yml",
-           aider_conf(project_name, wiki_rel),
-           ".aider.conf.yml (Aider)")
+    _merge_yaml(".aider.conf.yml",
+                aider_conf(project_name, wiki_rel),
+                ".aider.conf.yml (Aider)")
 
     _merge(".windsurf/rules",
            windsurf_rules(project_name, wiki_rel),
            ".windsurf/rules (Windsurf)")
 
-    # wiki/log.md — append-only, never overwrite
+    # wiki/ + wiki/log.md — append-only, never overwrite
+    wiki_dir.mkdir(parents=True, exist_ok=True)
     log_path = wiki_dir / "log.md"
     if not log_path.exists():
-        wiki_dir.mkdir(parents=True, exist_ok=True)
         log_path.write_text(log_md(project_name), encoding="utf-8")
         results.append(("wiki/log.md", log_path, "created"))
+
+    # wiki/home.md — placeholder; overwritten by `wikigen ingest`
+    home_path = wiki_dir / "home.md"
+    if not home_path.exists():
+        home_path.write_text(
+            f"# {project_name} — Wiki\n\n"
+            "_Run `wikigen ingest` to generate the table of contents._\n",
+            encoding="utf-8",
+        )
+        results.append(("wiki/home.md", home_path, "created"))
+
+    # raw/ — immutable source documents, never modified by wikigen
+    raw_dir = project_dir / "raw"
+    raw_dir.mkdir(exist_ok=True)
+    gitkeep = raw_dir / ".gitkeep"
+    if not gitkeep.exists():
+        gitkeep.touch()
+        results.append(("raw/", raw_dir, "created"))
 
     return results

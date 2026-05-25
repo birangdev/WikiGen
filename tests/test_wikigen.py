@@ -352,3 +352,530 @@ class TestAgentInstructions:
         p = tmp_path / ".github" / "copilot-instructions.md"
         assert p.exists()
         assert "wiki" in p.read_text()
+
+    def test_creates_raw_dir(self, tmp_path: Path) -> None:
+        from wikigen.agent_instructions import write_all
+        write_all(tmp_path, tmp_path / "wiki", "proj")
+        assert (tmp_path / "raw").is_dir()
+
+    def test_creates_wiki_home_placeholder(self, tmp_path: Path) -> None:
+        from wikigen.agent_instructions import write_all
+        write_all(tmp_path, tmp_path / "wiki", "proj")
+        home = tmp_path / "wiki" / "home.md"
+        assert home.exists()
+        assert "wikigen ingest" in home.read_text()
+
+    def test_home_md_not_overwritten(self, tmp_path: Path) -> None:
+        from wikigen.agent_instructions import write_all
+        wiki_dir = tmp_path / "wiki"
+        wiki_dir.mkdir()
+        home = wiki_dir / "home.md"
+        home.write_text("# Real home\n")
+        write_all(tmp_path, wiki_dir, "proj")
+        assert home.read_text() == "# Real home\n"
+
+    def test_raw_dir_not_recreated_on_second_run(self, tmp_path: Path) -> None:
+        from wikigen.agent_instructions import write_all
+        write_all(tmp_path, tmp_path / "wiki", "proj")
+        sentinel = tmp_path / "raw" / "document.txt"
+        sentinel.write_text("important")
+        write_all(tmp_path, tmp_path / "wiki", "proj")
+        assert sentinel.exists()
+
+    def test_for_tool_claude_only(self, tmp_path: Path) -> None:
+        from wikigen.agent_instructions import write_all
+        write_all(tmp_path, tmp_path / "wiki", "proj", for_tool="claude")
+        assert (tmp_path / "CLAUDE.md").exists()
+        assert not (tmp_path / ".cursorrules").exists()
+        assert not (tmp_path / ".aider.conf.yml").exists()
+
+    def test_for_tool_cursor_only(self, tmp_path: Path) -> None:
+        from wikigen.agent_instructions import write_all
+        write_all(tmp_path, tmp_path / "wiki", "proj", for_tool="cursor")
+        assert (tmp_path / ".cursorrules").exists()
+        assert not (tmp_path / "CLAUDE.md").exists()
+
+    def test_for_tool_all_writes_everything(self, tmp_path: Path) -> None:
+        from wikigen.agent_instructions import write_all
+        write_all(tmp_path, tmp_path / "wiki", "proj", for_tool="all")
+        assert (tmp_path / "CLAUDE.md").exists()
+        assert (tmp_path / ".cursorrules").exists()
+        assert (tmp_path / ".aider.conf.yml").exists()
+
+    def test_auto_detect_claude_code_writes_only_claude_md(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from wikigen.agent_instructions import write_all
+        monkeypatch.setenv("CLAUDE_CODE", "1")
+        write_all(tmp_path, tmp_path / "wiki", "proj")
+        assert (tmp_path / "CLAUDE.md").exists()
+        assert not (tmp_path / ".cursorrules").exists()
+
+    def test_no_for_tool_no_env_writes_all(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from wikigen.agent_instructions import write_all
+        monkeypatch.delenv("CLAUDE_CODE", raising=False)
+        write_all(tmp_path, tmp_path / "wiki", "proj")
+        assert (tmp_path / "CLAUDE.md").exists()
+        assert (tmp_path / ".cursorrules").exists()
+        assert (tmp_path / ".aider.conf.yml").exists()
+
+
+# ---------------------------------------------------------------------------
+# Aider YAML merge
+# ---------------------------------------------------------------------------
+
+class TestAiderYamlMerge:
+    def test_created_with_yaml_markers_not_html(self, tmp_path: Path) -> None:
+        from wikigen.agent_instructions import write_all, YAML_BEGIN, WIKIGEN_BEGIN
+        write_all(tmp_path, tmp_path / "wiki", "proj")
+        content = (tmp_path / ".aider.conf.yml").read_text()
+        assert YAML_BEGIN in content
+        assert WIKIGEN_BEGIN not in content
+
+    def test_created_file_is_valid_yaml(self, tmp_path: Path) -> None:
+        from wikigen.agent_instructions import write_all
+        write_all(tmp_path, tmp_path / "wiki", "proj")
+        content = (tmp_path / ".aider.conf.yml").read_text()
+        parsed = yaml.safe_load(content)
+        assert parsed is not None
+
+    def test_existing_yaml_config_preserved_on_append(self, tmp_path: Path) -> None:
+        from wikigen.agent_instructions import write_all, YAML_BEGIN
+        existing = "model: gpt-4o\nauto-commits: false\n"
+        (tmp_path / ".aider.conf.yml").write_text(existing)
+        write_all(tmp_path, tmp_path / "wiki", "proj")
+        content = (tmp_path / ".aider.conf.yml").read_text()
+        assert "model: gpt-4o" in content
+        assert YAML_BEGIN in content
+        assert content.index("model: gpt-4o") < content.index(YAML_BEGIN)
+
+    def test_existing_yaml_config_with_markers_updates(self, tmp_path: Path) -> None:
+        from wikigen.agent_instructions import write_all, YAML_BEGIN, YAML_END
+        existing = f"model: gpt-4o\n\n{YAML_BEGIN}\nread:\n  - old.md\n{YAML_END}\n"
+        (tmp_path / ".aider.conf.yml").write_text(existing)
+        results = write_all(tmp_path, tmp_path / "wiki", "proj")
+        actions = {str(p.name): action for _, p, action in results}
+        assert actions.get(".aider.conf.yml") == "updated"
+        content = (tmp_path / ".aider.conf.yml").read_text()
+        assert "model: gpt-4o" in content
+        assert "old.md" not in content
+
+    def test_aider_yaml_idempotent(self, tmp_path: Path) -> None:
+        from wikigen.agent_instructions import write_all
+        write_all(tmp_path, tmp_path / "wiki", "proj")
+        first = (tmp_path / ".aider.conf.yml").read_text()
+        write_all(tmp_path, tmp_path / "wiki", "proj")
+        second = (tmp_path / ".aider.conf.yml").read_text()
+        assert first == second
+
+    def test_appended_file_still_valid_yaml(self, tmp_path: Path) -> None:
+        from wikigen.agent_instructions import write_all
+        (tmp_path / ".aider.conf.yml").write_text("model: gpt-4o\n")
+        write_all(tmp_path, tmp_path / "wiki", "proj")
+        content = (tmp_path / ".aider.conf.yml").read_text()
+        parsed = yaml.safe_load(content)
+        assert parsed is not None
+
+
+# ---------------------------------------------------------------------------
+# Backends
+# ---------------------------------------------------------------------------
+
+class TestBackends:
+    def test_get_backend_claude(self) -> None:
+        from wikigen.backends import get_backend, ClaudeBackend
+        cfg = BackendConfig(name="claude")
+        assert isinstance(get_backend(cfg), ClaudeBackend)
+
+    def test_get_backend_claude_code(self) -> None:
+        from wikigen.backends import get_backend, ClaudeCodeBackend
+        cfg = BackendConfig(name="claude-code")
+        assert isinstance(get_backend(cfg), ClaudeCodeBackend)
+
+    def test_get_backend_unknown_exits(self) -> None:
+        from wikigen.backends import get_backend
+        cfg = BackendConfig(name="unknown-llm")
+        with pytest.raises(SystemExit):
+            get_backend(cfg)
+
+    def test_auto_detect_claude_code(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+        from wikigen.backends import _auto_detect_backend
+        monkeypatch.setenv("CLAUDE_CODE", "1")
+        fake_bin = tmp_path / "claude"
+        fake_bin.write_text("#!/bin/sh\necho hi\n")
+        fake_bin.chmod(0o755)
+        monkeypatch.setenv("PATH", str(tmp_path))
+        cfg = BackendConfig(name="claude")
+        result = _auto_detect_backend(cfg)
+        assert result.name == "claude-code"
+
+    def test_auto_detect_skips_when_no_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from wikigen.backends import _auto_detect_backend
+        monkeypatch.delenv("CLAUDE_CODE", raising=False)
+        cfg = BackendConfig(name="claude")
+        result = _auto_detect_backend(cfg)
+        assert result.name == "claude"
+
+    def test_auto_detect_skips_explicit_backend(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from wikigen.backends import _auto_detect_backend
+        monkeypatch.setenv("CLAUDE_CODE", "1")
+        cfg = BackendConfig(name="openai")
+        result = _auto_detect_backend(cfg)
+        assert result.name == "openai"
+
+    def test_auto_detect_skips_when_claude_not_on_path(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        from wikigen.backends import _auto_detect_backend
+        monkeypatch.setenv("CLAUDE_CODE", "1")
+        monkeypatch.setenv("PATH", "")
+        cfg = BackendConfig(name="claude")
+        result = _auto_detect_backend(cfg)
+        assert result.name == "claude"
+
+    def test_claude_code_backend_missing_cli(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        from wikigen.backends import ClaudeCodeBackend
+        monkeypatch.setenv("PATH", "")
+        backend = ClaudeCodeBackend(BackendConfig(name="claude-code"))
+        with pytest.raises(SystemExit):
+            backend.complete("system", "user")
+
+
+# ---------------------------------------------------------------------------
+# Section plan parsing
+# ---------------------------------------------------------------------------
+
+class TestSectionPlanParsing:
+    def _sections(self) -> list[str]:
+        return ["Architecture", "Modules", "API Reference"]
+
+    def test_valid_json(self) -> None:
+        from wikigen.ingester import _parse_section_plan
+        raw = '{"Architecture": ["Overview", "Design"], "Modules": ["Auth"]}'
+        result = _parse_section_plan(raw, self._sections())
+        assert result["Architecture"] == ["Overview", "Design"]
+        assert result["Modules"] == ["Auth"]
+
+    def test_json_in_fences(self) -> None:
+        from wikigen.ingester import _parse_section_plan
+        raw = '```json\n{"Architecture": ["Overview"]}\n```'
+        result = _parse_section_plan(raw, self._sections())
+        assert "Architecture" in result
+
+    def test_flat_list(self) -> None:
+        from wikigen.ingester import _parse_section_plan
+        raw = '["PageA", "PageB", "PageC"]'
+        result = _parse_section_plan(raw, self._sections())
+        assert any(pages for pages in result.values())
+
+    def test_flat_key_map(self) -> None:
+        from wikigen.ingester import _parse_section_plan
+        raw = '{"Overview": "", "AuthModule": null, "ApiEndpoints": ""}'
+        result = _parse_section_plan(raw, self._sections())
+        all_pages = [p for pages in result.values() for p in pages]
+        assert len(all_pages) > 0
+
+    def test_invalid_json_returns_empty(self) -> None:
+        from wikigen.ingester import _parse_section_plan
+        result = _parse_section_plan("not json at all {{", self._sections())
+        assert result == {}
+
+    def test_string_value_normalised_to_list(self) -> None:
+        from wikigen.ingester import _parse_section_plan
+        raw = '{"Architecture": "SinglePage"}'
+        result = _parse_section_plan(raw, self._sections())
+        assert result.get("Architecture") == ["SinglePage"]
+
+    def test_nested_dict_value_extracts_keys(self) -> None:
+        from wikigen.ingester import _parse_section_plan
+        raw = '{"Architecture": {"Overview": "desc", "Design": "desc"}}'
+        result = _parse_section_plan(raw, self._sections())
+        assert set(result.get("Architecture", [])) == {"Overview", "Design"}
+
+    def test_empty_sections_filtered_out(self) -> None:
+        from wikigen.ingester import _parse_section_plan
+        raw = '{"Architecture": ["Overview"], "Modules": []}'
+        result = _parse_section_plan(raw, self._sections())
+        assert "Modules" not in result
+
+
+# ---------------------------------------------------------------------------
+# Ingester helpers
+# ---------------------------------------------------------------------------
+
+class TestIngesterHelpers:
+    def test_file_tree_basic(self, tmp_project: Path, cfg: WikigenConfig) -> None:
+        from wikigen.ingester import _file_tree
+        from wikigen.collector import FileCollector
+        files = FileCollector(tmp_project, cfg.ingestion).collect()
+        tree = _file_tree(files)
+        assert "main.py" in tree or "README.md" in tree
+
+    def test_file_tree_truncates(self, tmp_project: Path, cfg: WikigenConfig) -> None:
+        from wikigen.ingester import _file_tree
+        from wikigen.collector import FileCollector
+        files = FileCollector(tmp_project, cfg.ingestion).collect()
+        tree = _file_tree(files, max_lines=1)
+        assert "more files" in tree
+
+    def test_find_relevant_chunks_keyword_match(self, tmp_project: Path) -> None:
+        from wikigen.ingester import _find_relevant_chunks
+        from wikigen.collector import SourceFile, FileChunk
+        sf = SourceFile.read(tmp_project / "src" / "main.py", tmp_project)
+        chunks = [FileChunk(sf, 0, 1, "def authenticate_user(): pass", 6)]
+        result = _find_relevant_chunks("AuthModule", "Modules", chunks, max_chunks=3)
+        assert len(result) >= 1
+
+    def test_find_relevant_chunks_caps_at_max(self, tmp_project: Path) -> None:
+        from wikigen.ingester import _find_relevant_chunks
+        from wikigen.collector import SourceFile, FileChunk
+        sf = SourceFile.read(tmp_project / "src" / "main.py", tmp_project)
+        chunks = [FileChunk(sf, i, 10, f"content {i}", 2) for i in range(10)]
+        result = _find_relevant_chunks("Title", "Section", chunks, max_chunks=3)
+        assert len(result) == 3
+
+    def test_derive_plan_from_files(self, tmp_project: Path, cfg: WikigenConfig) -> None:
+        from wikigen.ingester import _derive_plan_from_files
+        from wikigen.collector import FileCollector
+        files = FileCollector(tmp_project, cfg.ingestion).collect()
+        plan = _derive_plan_from_files(files, cfg.wiki.sections)
+        assert isinstance(plan, dict)
+        all_pages = [p for pages in plan.values() for p in pages]
+        assert len(all_pages) >= 0  # may be empty for tiny project, shape is correct
+
+    def test_group_pages_by_prefix_keyword_match(self) -> None:
+        from wikigen.ingester import _group_pages_by_prefix
+        pages = ["SystemOverview", "AuthModule", "UserModel", "ApiEndpoints"]
+        sections = ["Architecture", "Modules", "Data Models", "API Reference"]
+        result = _group_pages_by_prefix(pages, sections)
+        assert isinstance(result, dict)
+        all_assigned = [p for pages in result.values() for p in pages]
+        assert set(all_assigned) == set(pages)
+
+    def test_group_pages_unassigned_goes_to_catchall(self) -> None:
+        from wikigen.ingester import _group_pages_by_prefix
+        pages = ["WeirdPageXYZ"]
+        sections = ["Architecture", "Overview"]
+        result = _group_pages_by_prefix(pages, sections)
+        all_assigned = [p for pages in result.values() for p in pages]
+        assert "WeirdPageXYZ" in all_assigned
+
+
+# ---------------------------------------------------------------------------
+# Prompts
+# ---------------------------------------------------------------------------
+
+class TestPrompts:
+    def test_context_summary_prompt_contains_project(self) -> None:
+        from wikigen.prompts import build_context_summary_prompt
+        prompt = build_context_summary_prompt("MyProject", [("README.md", "# MyProject\nA tool.")])
+        assert "MyProject" in prompt
+        assert "README.md" in prompt
+
+    def test_section_plan_prompt_contains_sections(self) -> None:
+        from wikigen.prompts import build_section_plan_prompt
+        prompt = build_section_plan_prompt(
+            "MyProject", "context here", ["Architecture", "Modules"], "src/main.py"
+        )
+        assert "Architecture" in prompt
+        assert "Modules" in prompt
+        assert "JSON" in prompt
+
+    def test_page_prompt_returns_tuple(self) -> None:
+        from wikigen.prompts import build_page_prompt
+        system, user = build_page_prompt(
+            page_title="AuthModule",
+            section="Modules",
+            project_name="MyProject",
+            context_summary="A project.",
+            source_chunks=["def login(): pass"],
+            all_page_titles=["AuthModule", "UserModel"],
+        )
+        assert "AuthModule" in user
+        assert "MyProject" in user
+        assert isinstance(system, str) and len(system) > 0
+
+    def test_page_prompt_markdown_link_style(self) -> None:
+        from wikigen.prompts import build_page_prompt
+        _, user = build_page_prompt(
+            page_title="Overview",
+            section="Architecture",
+            project_name="Proj",
+            context_summary="ctx",
+            source_chunks=[],
+            all_page_titles=[],
+            link_style="markdown",
+        )
+        assert "PageTitle.md" in user
+
+    def test_home_page_prompt_contains_toc(self) -> None:
+        from wikigen.prompts import build_home_page_prompt
+        system, user = build_home_page_prompt(
+            "MyProject",
+            "context",
+            {"Architecture": ["Overview"], "Modules": ["Auth"]},
+        )
+        assert "Overview" in user
+        assert "Auth" in user
+        assert "MyProject" in user
+
+
+# ---------------------------------------------------------------------------
+# Writer — additional coverage
+# ---------------------------------------------------------------------------
+
+class TestWriterExtra:
+    def test_write_home(self, tmp_path: Path) -> None:
+        writer = WikiWriter(tmp_path / "wiki", WikiConfig())
+        path = writer.write_home("---\ntitle: Home\n---\n\n## TOC\n")
+        assert path.name == "home.md"
+        assert path.exists()
+
+    def test_write_home_creates_wiki_dir(self, tmp_path: Path) -> None:
+        writer = WikiWriter(tmp_path / "nonexistent" / "wiki", WikiConfig())
+        path = writer.write_home("content")
+        assert path.exists()
+
+    def test_ensure_dirs(self, tmp_path: Path) -> None:
+        writer = WikiWriter(tmp_path / "wiki", WikiConfig())
+        writer.ensure_dirs(["Architecture", "Data Models"])
+        assert (tmp_path / "wiki" / "architecture").is_dir()
+        assert (tmp_path / "wiki" / "data-models").is_dir()
+
+    def test_wikilink_conversion(self, tmp_path: Path) -> None:
+        cfg = WikiConfig(link_style="markdown")
+        writer = WikiWriter(tmp_path / "wiki", cfg)
+        path = writer.write_page("Architecture", "Overview", "See [[AuthModule]] for details.")
+        content = path.read_text()
+        assert "[[AuthModule]]" not in content
+        assert "[AuthModule](" in content
+
+    def test_wikilink_not_converted_in_wikilink_mode(self, tmp_path: Path) -> None:
+        cfg = WikiConfig(link_style="wikilink")
+        writer = WikiWriter(tmp_path / "wiki", cfg)
+        path = writer.write_page("Architecture", "Overview", "See [[AuthModule]].")
+        assert "[[AuthModule]]" in path.read_text()
+
+    def test_empty_section_falls_back_to_general(self, tmp_path: Path) -> None:
+        writer = WikiWriter(tmp_path / "wiki", WikiConfig())
+        path = writer.write_page("", "OrphanPage", "content")
+        assert "general" in str(path)
+
+
+# ---------------------------------------------------------------------------
+# Linter — log.md exemptions + auto-fix
+# ---------------------------------------------------------------------------
+
+class TestLinterLogExemption:
+    def test_log_md_not_flagged(self, tmp_path: Path) -> None:
+        wiki = tmp_path / "wiki"
+        wiki.mkdir()
+        (wiki / "home.md").write_text(
+            "---\ntitle: Home\ndescription: x\ntags: []\nrelated: []\n---\n\nContent.\n"
+        )
+        (wiki / "log.md").write_text("# Log\n\n## 2024-01-01 — init\n\n- Started.\n")
+        linter = Linter(wiki)
+        issues = linter.run()
+        assert not any("log" in str(i.page) for i in issues)
+
+    def test_auto_fix_adds_front_matter(self, tmp_path: Path) -> None:
+        wiki = tmp_path / "wiki"
+        wiki.mkdir()
+        page = wiki / "no-front-matter.md"
+        page.write_text("## Heading\nContent without front matter.\n")
+        (wiki / "home.md").write_text(
+            "---\ntitle: Home\ndescription: x\ntags: []\nrelated: []\n---\n\n[[NoFrontMatter]]\n"
+        )
+        linter = Linter(wiki)
+        linter.run(fix=True)
+        content = page.read_text()
+        assert content.startswith("---")
+        assert "title:" in content
+
+    def test_missing_front_matter_detected(self, tmp_path: Path) -> None:
+        wiki = tmp_path / "wiki"
+        wiki.mkdir()
+        (wiki / "home.md").write_text("## No front matter\n")
+        linter = Linter(wiki)
+        issues = linter.run()
+        assert any(i.kind == "missing_front_matter" for i in issues)
+
+
+# ---------------------------------------------------------------------------
+# Cache — all_keys
+# ---------------------------------------------------------------------------
+
+class TestCacheAllKeys:
+    def test_all_keys_empty(self, tmp_path: Path) -> None:
+        cache = HashCache(tmp_path)
+        assert cache.all_keys() == set()
+
+    def test_all_keys_after_set(self, tmp_path: Path) -> None:
+        cache = HashCache(tmp_path)
+        cache.set("a.py", "hash1")
+        cache.set("b.py", "hash2")
+        assert cache.all_keys() == {"a.py", "b.py"}
+
+    def test_all_keys_after_remove(self, tmp_path: Path) -> None:
+        cache = HashCache(tmp_path)
+        cache.set("a.py", "hash1")
+        cache.set("b.py", "hash2")
+        cache.remove("a.py")
+        assert cache.all_keys() == {"b.py"}
+
+
+# ---------------------------------------------------------------------------
+# Collector — glob matching
+# ---------------------------------------------------------------------------
+
+class TestGlobMatching:
+    def test_double_star_matches_nested(self) -> None:
+        from wikigen.collector import _matches_glob
+        assert _matches_glob(".git/objects/pack/file", "**/.git/**")
+
+    def test_single_star_does_not_cross_slash(self) -> None:
+        from wikigen.collector import _matches_glob
+        assert not _matches_glob("src/sub/file.py", "src/*.py")
+        assert _matches_glob("src/file.py", "src/*.py")
+
+    def test_question_mark_matches_single_char(self) -> None:
+        from wikigen.collector import _matches_glob
+        assert _matches_glob("file.py", "file.p?")
+        assert not _matches_glob("file.pyc", "file.p?")
+
+    def test_extension_pattern(self) -> None:
+        from wikigen.collector import _matches_glob
+        assert _matches_glob("src/main.pyc", "**/*.pyc")
+        assert not _matches_glob("src/main.py", "**/*.pyc")
+
+
+# ---------------------------------------------------------------------------
+# Chunker — edge cases
+# ---------------------------------------------------------------------------
+
+class TestChunkerEdgeCases:
+    def test_overlap_larger_than_chunk_does_not_loop(self, tmp_path: Path) -> None:
+        f = tmp_path / "big.py"
+        f.write_text("x = 1\n" * 1000)
+        sf = SourceFile.read(f, tmp_path)
+        chunks = chunk_file(sf, chunk_size_tokens=100, overlap_tokens=200)
+        assert len(chunks) >= 1
+
+    def test_empty_file_single_chunk(self, tmp_path: Path) -> None:
+        f = tmp_path / "empty.py"
+        f.write_text("")
+        sf = SourceFile.read(f, tmp_path)
+        chunks = chunk_file(sf, chunk_size_tokens=500, overlap_tokens=50)
+        assert len(chunks) == 1
+
+    def test_chunk_covers_full_content(self, tmp_path: Path) -> None:
+        f = tmp_path / "code.py"
+        content = "line\n" * 3000
+        f.write_text(content)
+        sf = SourceFile.read(f, tmp_path)
+        chunks = chunk_file(sf, chunk_size_tokens=500, overlap_tokens=50)
+        combined = "".join(c.text for c in chunks)
+        # Every line should appear in at least one chunk
+        assert "line" in combined

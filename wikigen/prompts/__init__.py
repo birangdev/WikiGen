@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from ..config import WikigenConfig
-
 
 # ---------------------------------------------------------------------------
 # System prompt

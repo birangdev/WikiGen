@@ -37,7 +37,7 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     "--backend",
     "-b",
     default=None,
-    type=click.Choice(["claude", "openai", "ollama"], case_sensitive=False),
+    type=click.Choice(["claude", "claude-code", "openai", "ollama"], case_sensitive=False),
     help="LLM backend to use. Overrides value in wikigen.yaml.",
 )
 @click.pass_context
@@ -76,8 +76,15 @@ def cli(ctx: click.Context, project_dir: str, wiki_dir: str | None, backend: str
     default=False,
     help="Skip generating CLAUDE.md / .cursorrules / copilot-instructions etc.",
 )
+@click.option(
+    "--for",
+    "for_tool",
+    default=None,
+    type=click.Choice(["claude", "cursor", "copilot", "aider", "windsurf", "all"], case_sensitive=False),
+    help="Only write the instruction file for this tool (auto-detected if omitted).",
+)
 @click.pass_context
-def init(ctx: click.Context, no_agent_files: bool) -> None:
+def init(ctx: click.Context, no_agent_files: bool, for_tool: str | None) -> None:
     """Scaffold wikigen.yaml and multi-tool AI instruction files.
 
     By default this writes:
@@ -112,7 +119,7 @@ def init(ctx: click.Context, no_agent_files: bool) -> None:
     click.echo(click.style("✓ ", fg="green") + "wikigen.yaml")
 
     if not no_agent_files:
-        results = write_agent_files(project_dir, wiki_dir, cfg.project_name)
+        results = write_agent_files(project_dir, wiki_dir, cfg.project_name, for_tool=for_tool)
         action_colours = {"created": "green", "appended": "cyan", "updated": "yellow"}
         action_icons   = {"created": "✓", "appended": "+", "updated": "↻"}
         for label, path, action in results:
