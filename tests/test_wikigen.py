@@ -69,6 +69,36 @@ class TestConfig:
         bc = BackendConfig(name="claude", api_key_env="MISSING_KEY_XYZ")
         assert bc.resolve_api_key() is None
 
+    def test_resolve_api_key_from_dotenv(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dotenv = tmp_path / ".env"
+        dotenv.write_text('ANTHROPIC_API_KEY="sk-from-dotenv"\n')
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.chdir(tmp_path)
+        bc = BackendConfig(name="claude", api_key_env="ANTHROPIC_API_KEY")
+        assert bc.resolve_api_key() == "sk-from-dotenv"
+
+    def test_resolve_api_key_env_takes_priority_over_dotenv(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dotenv = tmp_path / ".env"
+        dotenv.write_text("ANTHROPIC_API_KEY=sk-from-dotenv\n")
+        monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-from-env")
+        monkeypatch.chdir(tmp_path)
+        bc = BackendConfig(name="claude", api_key_env="ANTHROPIC_API_KEY")
+        assert bc.resolve_api_key() == "sk-from-env"
+
+    def test_resolve_api_key_dotenv_strips_quotes(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        dotenv = tmp_path / ".env"
+        dotenv.write_text("ANTHROPIC_API_KEY='sk-single-quoted'\n")
+        monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+        monkeypatch.chdir(tmp_path)
+        bc = BackendConfig(name="claude", api_key_env="ANTHROPIC_API_KEY")
+        assert bc.resolve_api_key() == "sk-single-quoted"
+
 
 # ---------------------------------------------------------------------------
 # Collector

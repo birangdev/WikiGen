@@ -19,7 +19,7 @@ from .prompts import (
     build_page_prompt,
     build_section_plan_prompt,
 )
-from .writer import WikiWriter, page_filename
+from .writer import WikiWriter, page_filename, _slugify
 
 
 def _file_tree(files: list[SourceFile], max_lines: int = 200) -> str:
@@ -131,7 +131,6 @@ class Ingester:
             system="You are an expert technical writer. Respond only with valid JSON.",
             user=plan_prompt,
         )
-        import re as _re
         click.echo(f"  Section plan raw (first 200 chars): {plan_raw[:200]!r}")
         section_plan = _parse_section_plan(plan_raw, self.cfg.wiki.sections)
         click.echo(f"  Section plan parsed: { {k: len(v) for k, v in section_plan.items()} }")
@@ -169,12 +168,21 @@ class Ingester:
 
         generated = 0
         skipped = 0
+        resumed = 0
+        total_tasks = len(tasks)
 
         def generate_page(section: str, title: str) -> tuple[str, str, str]:
-            """Returns (section, title, filepath)."""
+            """Returns (section, title, status) where status is a path, 'SKIP', or 'RESUME'."""
             cache_key = f"{section}/{title}"
+
+            # Normal cache hit — already generated with the same context
             if not force and cache.get(cache_key) == context_summary[:64]:
                 return section, title, "SKIP"
+
+            # Resume — file exists from an interrupted previous run
+            out_path = self.wiki_dir / (_slugify(section) or "general") / page_filename(title)
+            if not force and out_path.exists() and out_path.stat().st_size > 0:
+                return section, title, "RESUME"
 
             source_chunks = _find_relevant_chunks(title, section, all_chunks)
             sys_prompt, user_prompt = build_page_prompt(
@@ -192,39 +200,57 @@ class Ingester:
 
         with ThreadPoolExecutor(max_workers=concurrency) as executor:
             futures = {executor.submit(generate_page, s, t): (s, t) for s, t in tasks}
-            for future in as_completed(futures):
+            for done, future in enumerate(as_completed(futures), 1):
                 section, title, result = future.result()
+                progress = click.style(f"[{done}/{total_tasks}]", dim=True)
                 if result == "SKIP":
                     skipped += 1
-                    click.echo(f"  {click.style('–', fg='yellow')} {section}/{title} (cached)")
+                    click.echo(f"  {click.style('–', fg='yellow')} {progress} {section}/{title} (cached)")
+                elif result == "RESUME":
+                    resumed += 1
+                    cache.set(f"{section}/{title}", context_summary[:64])
+                    cache.save()
+                    click.echo(f"  {click.style('↻', fg='cyan')} {progress} {section}/{title} (resumed)")
                 else:
                     generated += 1
                     cache.set(f"{section}/{title}", context_summary[:64])
-                    click.echo(f"  {click.style('✓', fg='green')} {section}/{title}")
+                    cache.save()  # save after every page so a cutoff loses nothing
+                    click.echo(f"  {click.style('✓', fg='green')} {progress} {section}/{title}")
 
         # ── 6. Generate Home page ──
-        click.echo(click.style("● Generating Home page…", fg="cyan"))
-        sys_prompt, user_prompt = build_home_page_prompt(
-            self.cfg.project_name,
-            context_summary,
-            section_plan,
-            self.cfg.wiki.link_style,
+        home_path = self.wiki_dir / page_filename(self.cfg.wiki.index_page)
+        home_is_placeholder = (
+            home_path.exists()
+            and "wikigen ingest" in home_path.read_text(encoding="utf-8")
+            and home_path.stat().st_size < 500
         )
-        home_content = self.backend.complete(sys_prompt, user_prompt)
-        home_path = self.writer.write_home(home_content)
-        generated += 1
+        if not force and home_path.exists() and not home_is_placeholder:
+            click.echo(click.style("● Home page already exists — skipping (resumed).", fg="cyan"))
+            resumed += 1
+        else:
+            click.echo(click.style("● Generating Home page…", fg="cyan"))
+            sys_prompt, user_prompt = build_home_page_prompt(
+                self.cfg.project_name,
+                context_summary,
+                section_plan,
+                self.cfg.wiki.link_style,
+            )
+            home_content = self.backend.complete(sys_prompt, user_prompt)
+            self.writer.write_home(home_content)
+            generated += 1
 
         cache.save()
 
         click.echo("")
         click.echo(click.style("✓ Done!", fg="green", bold=True))
         click.echo(f"  Generated : {generated} pages")
+        if resumed:
+            click.echo(f"  Resumed   : {resumed} pages")
         if skipped:
             click.echo(f"  Cached    : {skipped} pages")
         click.echo(f"  Wiki dir  : {self.wiki_dir}")
 
-        # Append to log.md if it exists
-        _append_log(self.wiki_dir, f"wikigen ingest — generated {generated} pages, {skipped} cached.")
+        _append_log(self.wiki_dir, f"wikigen ingest — generated {generated}, resumed {resumed}, cached {skipped}.")
 
 
 # ---------------------------------------------------------------------------

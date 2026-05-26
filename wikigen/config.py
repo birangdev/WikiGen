@@ -5,6 +5,21 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
+
+
+def _read_dotenv(path: Path, key: str) -> str | None:
+    """Parse a single key from a .env file without external dependencies."""
+    try:
+        for line in path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if line.startswith("#") or "=" not in line:
+                continue
+            k, _, v = line.partition("=")
+            if k.strip() == key:
+                return v.strip().strip('"').strip("'")
+    except OSError:
+        pass
+    return None
 from typing import Any
 
 import yaml
@@ -24,16 +39,25 @@ class BackendConfig:
     temperature: float = 0.2
 
     def resolve_api_key(self) -> str | None:
-        if self.api_key_env:
-            return os.environ.get(self.api_key_env)
-        # Sensible defaults
         defaults = {
             "claude": "ANTHROPIC_API_KEY",
             "openai": "OPENAI_API_KEY",
             "ollama": None,
         }
-        env = defaults.get(self.name)
-        return os.environ.get(env) if env else None
+        env_var = self.api_key_env or defaults.get(self.name)
+        if not env_var:
+            return None
+        # 1. Shell environment (fastest path)
+        value = os.environ.get(env_var)
+        if value:
+            return value
+        # 2. .env file in cwd or home dir (for Claude Code and similar environments
+        #    where the key isn't exported to subprocesses)
+        for dotenv in (Path(".env"), Path.home() / ".env"):
+            value = _read_dotenv(dotenv, env_var)
+            if value:
+                return value
+        return None
 
 
 @dataclass
