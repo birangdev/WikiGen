@@ -489,10 +489,15 @@ class TestBackends:
         cfg = BackendConfig(name="claude")
         assert isinstance(get_backend(cfg), ClaudeBackend)
 
-    def test_get_backend_claude_code(self) -> None:
-        from wikigen.backends import get_backend, ClaudeCodeBackend
-        cfg = BackendConfig(name="claude-code")
-        assert isinstance(get_backend(cfg), ClaudeCodeBackend)
+    def test_get_backend_openai(self) -> None:
+        from wikigen.backends import get_backend, OpenAIBackend
+        cfg = BackendConfig(name="openai")
+        assert isinstance(get_backend(cfg), OpenAIBackend)
+
+    def test_get_backend_ollama(self) -> None:
+        from wikigen.backends import get_backend, OllamaBackend
+        cfg = BackendConfig(name="ollama")
+        assert isinstance(get_backend(cfg), OllamaBackend)
 
     def test_get_backend_unknown_exits(self) -> None:
         from wikigen.backends import get_backend
@@ -500,47 +505,11 @@ class TestBackends:
         with pytest.raises(SystemExit):
             get_backend(cfg)
 
-    def test_auto_detect_claude_code(self, monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
-        from wikigen.backends import _auto_detect_backend
-        monkeypatch.setenv("CLAUDE_CODE", "1")
-        fake_bin = tmp_path / "claude"
-        fake_bin.write_text("#!/bin/sh\necho hi\n")
-        fake_bin.chmod(0o755)
-        monkeypatch.setenv("PATH", str(tmp_path))
-        cfg = BackendConfig(name="claude")
-        result = _auto_detect_backend(cfg)
-        assert result.name == "claude-code"
-
-    def test_auto_detect_skips_when_no_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from wikigen.backends import _auto_detect_backend
-        monkeypatch.delenv("CLAUDE_CODE", raising=False)
-        cfg = BackendConfig(name="claude")
-        result = _auto_detect_backend(cfg)
-        assert result.name == "claude"
-
-    def test_auto_detect_skips_explicit_backend(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from wikigen.backends import _auto_detect_backend
-        monkeypatch.setenv("CLAUDE_CODE", "1")
-        cfg = BackendConfig(name="openai")
-        result = _auto_detect_backend(cfg)
-        assert result.name == "openai"
-
-    def test_auto_detect_skips_when_claude_not_on_path(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        from wikigen.backends import _auto_detect_backend
-        monkeypatch.setenv("CLAUDE_CODE", "1")
-        monkeypatch.setenv("PATH", "")
-        cfg = BackendConfig(name="claude")
-        result = _auto_detect_backend(cfg)
-        assert result.name == "claude"
-
-    def test_claude_code_backend_missing_cli(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        from wikigen.backends import ClaudeCodeBackend
-        monkeypatch.setenv("PATH", "")
-        backend = ClaudeCodeBackend(BackendConfig(name="claude-code"))
+    def test_get_backend_claude_code_removed(self) -> None:
+        from wikigen.backends import get_backend
+        cfg = BackendConfig(name="claude-code")
         with pytest.raises(SystemExit):
-            backend.complete("system", "user")
+            get_backend(cfg)
 
 
 # ---------------------------------------------------------------------------

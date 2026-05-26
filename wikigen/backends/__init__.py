@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import os
 import sys
 from abc import ABC, abstractmethod
 from typing import Any
@@ -149,56 +147,17 @@ class OllamaBackend(LLMBackend):
 
 
 # ---------------------------------------------------------------------------
-# Claude Code CLI
-# ---------------------------------------------------------------------------
-
-class ClaudeCodeBackend(LLMBackend):
-    """Claude Code CLI backend — uses the local `claude` command, no API key needed."""
-
-    def complete(self, system: str, user: str) -> str:
-        import shutil
-        import subprocess
-
-        if not shutil.which("claude"):
-            sys.exit("✗ `claude` CLI not found.  Install Claude Code or switch to a different backend.")
-
-        full_prompt = f"<system>\n{system}\n</system>\n\n{user}" if system else user
-        result = subprocess.run(
-            ["claude", "--print"],
-            input=full_prompt,
-            capture_output=True,
-            text=True,
-        )
-        if result.returncode != 0:
-            sys.exit(f"✗ Claude Code CLI error: {result.stderr.strip() or result.stdout.strip()}")
-        return result.stdout.strip()
-
-
-# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
 _REGISTRY: dict[str, type[LLMBackend]] = {
     "claude": ClaudeBackend,
-    "claude-code": ClaudeCodeBackend,
     "openai": OpenAIBackend,
     "ollama": OllamaBackend,
 }
 
 
-def _auto_detect_backend(cfg: BackendConfig) -> BackendConfig:
-    """Return a copy of cfg with name set to 'claude-code' when the Claude Code
-    CLI environment is detected and no backend was explicitly configured."""
-    import shutil
-    if cfg.name == "claude" and os.environ.get("CLAUDE_CODE") and shutil.which("claude"):
-        from copy import copy
-        cfg = copy(cfg)
-        cfg.name = "claude-code"
-    return cfg
-
-
 def get_backend(cfg: BackendConfig) -> LLMBackend:
-    cfg = _auto_detect_backend(cfg)
     name = cfg.name.lower()
     cls = _REGISTRY.get(name)
     if cls is None:

@@ -25,7 +25,6 @@ wikigen/
 │   │   ├── writer.py       Markdown output + [[wikilink]] conversion
 │   │   ├── backends/       LLM abstraction layer
 │   │   │   ├── Claude          Anthropic SDK
-│   │   │   ├── ClaudeCode      local `claude` CLI, no API key needed
 │   │   │   ├── OpenAI          openai SDK (or any compatible endpoint)
 │   │   │   └── Ollama          local via httpx REST
 │   │   └── prompts/        all system + user prompt builders
@@ -36,7 +35,7 @@ wikigen/
 │   └── linter.py       ← Broken [[WikiLinks]], orphan detection, CI exit code
 │
 tests/
-└── test_wikigen.py     58 tests, zero LLM calls required
+└── test_wikigen.py     90 tests, zero LLM calls required
 ```
 
 **Data flow during `wikigen ingest`:**
@@ -59,14 +58,12 @@ wikigen is designed to be invoked directly by coding agents that have shell acce
 
 ### Auto-detection
 
-wikigen auto-detects which environment it's running in and skips irrelevant setup:
+wikigen auto-detects which instruction file to write based on the environment:
 
 | Environment | Detection | Behaviour |
 |---|---|---|
-| Claude Code | `CLAUDE_CODE=1` env var | Uses `claude` CLI directly — no API key needed, only `CLAUDE.md` is written by `init` |
-| OpenAI / compatible | `OPENAI_API_KEY` present | Uses OpenAI backend automatically |
-| Anthropic API | `ANTHROPIC_API_KEY` present | Uses Claude API backend |
-| Ollama | `ollama` CLI on PATH | Uses local Ollama backend |
+| Claude Code | `CLAUDE_CODE=1` env var | Only `CLAUDE.md` is written by `init` |
+| Cursor / Copilot / Windsurf | not detectable (IDE) | Use `--for` flag explicitly |
 
 ### `--for` flag
 
@@ -83,30 +80,24 @@ wikigen init                   # auto-detect, or all files if no env var found
 
 ### Claude Code
 
-When `CLAUDE_CODE=1` is set, wikigen automatically switches to `ClaudeCodeBackend`, which calls the local `claude --print` CLI instead of the Anthropic API. No API key configuration needed — you're already inside the LLM.
+Claude Code always has `ANTHROPIC_API_KEY` in its environment — the same key it uses for its own reasoning. wikigen picks it up automatically, so no extra setup is needed.
 
 ```bash
 cd /path/to/project
 pip install "wikigen-cli[claude]" -q
 wikigen init       # auto-detects Claude Code, writes only CLAUDE.md
-wikigen ingest     # uses the local `claude` CLI, no extra key setup
+wikigen ingest     # uses ANTHROPIC_API_KEY directly, normal token usage
 ```
 
 After that, run `wikigen update` after every significant change to keep the wiki in sync. The wiki then becomes persistent structured context the agent can read back in future sessions — surviving the context window limit that would otherwise force it to re-read the whole codebase each time.
 
 ### Other agents
 
-Cursor, Windsurf, and Copilot are IDE-based and cannot be auto-detected from a subprocess. Set the backend explicitly:
+Cursor, Windsurf, and Copilot are IDE-based and cannot be auto-detected from a subprocess. Set the backend explicitly in `wikigen.yaml` or via the `--backend` flag:
 
 ```bash
-# OpenAI-backed
-wikigen --backend openai ingest
-
-# Fully local, no keys
-wikigen --backend ollama ingest
-
-# Explicit claude-code CLI (e.g. when CLAUDE_CODE isn't set but claude is installed)
-wikigen --backend claude-code ingest
+wikigen --backend openai ingest   # OpenAI
+wikigen --backend ollama ingest   # fully local, no keys
 ```
 
 All commands exit with code 0 on success and non-zero on error, making them composable in agent tool-call loops and CI pipelines.
@@ -265,7 +256,7 @@ Useful in CI:
 project_name: "my-project"
 
 backend:
-  name: "claude"           # claude | claude-code | openai | ollama
+  name: "claude"           # claude | openai | ollama
   model: "claude-sonnet-4-20250514"
   api_key_env: "ANTHROPIC_API_KEY"
   # base_url: "http://localhost:11434"  # for Ollama or OpenAI-compatible endpoints
@@ -312,21 +303,6 @@ backend:
   name: claude
   model: claude-sonnet-4-20250514
   api_key_env: ANTHROPIC_API_KEY
-```
-
-### Claude Code CLI
-
-Uses the local `claude --print` command. No API key needed — intended for use inside Claude Code sessions or anywhere the `claude` CLI is installed.
-
-Auto-selected when `CLAUDE_CODE=1` is set. Can also be forced explicitly:
-
-```bash
-wikigen --backend claude-code ingest
-```
-
-```yaml
-backend:
-  name: claude-code
 ```
 
 ### OpenAI

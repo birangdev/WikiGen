@@ -37,7 +37,7 @@ CONTEXT_SETTINGS = {"help_option_names": ["-h", "--help"]}
     "--backend",
     "-b",
     default=None,
-    type=click.Choice(["claude", "claude-code", "openai", "ollama"], case_sensitive=False),
+    type=click.Choice(["claude", "openai", "ollama"], case_sensitive=False),
     help="LLM backend to use. Overrides value in wikigen.yaml.",
 )
 @click.pass_context
