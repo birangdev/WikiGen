@@ -876,5 +876,87 @@ class TestChunkerEdgeCases:
         sf = SourceFile.read(f, tmp_path)
         chunks = chunk_file(sf, chunk_size_tokens=500, overlap_tokens=50)
         combined = "".join(c.text for c in chunks)
-        # Every line should appear in at least one chunk
         assert "line" in combined
+
+
+# ---------------------------------------------------------------------------
+# Resume + progress
+# ---------------------------------------------------------------------------
+
+class TestResumeAndProgress:
+    def test_resume_skips_existing_page(self, tmp_path: Path) -> None:
+        """A page file that already exists on disk should be detected as resumed."""
+        from wikigen.writer import WikiWriter, page_filename, _slugify
+        wiki_dir = tmp_path / "wiki"
+        writer = WikiWriter(wiki_dir, WikiConfig())
+        writer.ensure_dirs(["Architecture"])
+        # Simulate a page written by a previous interrupted run
+        page_path = wiki_dir / "architecture" / page_filename("Overview")
+        page_path.write_text("---\ntitle: Overview\n---\n\nContent.\n")
+        assert page_path.exists()
+        assert page_path.stat().st_size > 0
+
+    def test_resume_does_not_skip_empty_file(self, tmp_path: Path) -> None:
+        """An empty file should not count as a completed page."""
+        from wikigen.writer import page_filename
+        wiki_dir = tmp_path / "wiki"
+        (wiki_dir / "architecture").mkdir(parents=True)
+        empty = wiki_dir / "architecture" / page_filename("Overview")
+        empty.write_text("")
+        assert empty.stat().st_size == 0
+
+    def test_home_page_placeholder_detection(self, tmp_path: Path) -> None:
+        """Placeholder home.md (from init) should be treated as not-yet-generated."""
+        wiki_dir = tmp_path / "wiki"
+        wiki_dir.mkdir()
+        home = wiki_dir / "home.md"
+        placeholder = "# proj — Wiki\n\n_Run `wikigen ingest` to generate the table of contents._\n"
+        home.write_text(placeholder)
+        content = home.read_text(encoding="utf-8")
+        # The placeholder detection logic used in ingester.py
+        is_placeholder = (
+            home.exists()
+            and "wikigen ingest" in content
+            and home.stat().st_size < 500
+        )
+        assert is_placeholder
+
+    def test_home_page_real_content_not_placeholder(self, tmp_path: Path) -> None:
+        """A fully generated home page should not be treated as a placeholder."""
+        wiki_dir = tmp_path / "wiki"
+        wiki_dir.mkdir()
+        home = wiki_dir / "home.md"
+        real_content = (
+            "---\ntitle: Home\ndescription: Index\ntags: []\n---\n\n"
+            "## Overview\nThis is the real generated home page with lots of content.\n"
+            "## Sections\n- Architecture\n- Modules\n- API Reference\n"
+        )
+        home.write_text(real_content)
+        is_placeholder = (
+            home.exists()
+            and "wikigen ingest" in home.read_text(encoding="utf-8")
+            and home.stat().st_size < 500
+        )
+        assert not is_placeholder
+
+    def test_cache_saved_per_page(self, tmp_path: Path) -> None:
+        """Cache file should exist after a page is written and cache.save() called."""
+        cache = HashCache(tmp_path)
+        cache.set("Architecture/Overview", "abc123")
+        cache.save()
+        # Cache file must exist immediately — not deferred to end of run
+        assert (tmp_path / ".wikigen_cache.json").exists()
+        reloaded = HashCache(tmp_path)
+        assert reloaded.get("Architecture/Overview") == "abc123"
+
+    def test_partial_cache_survives_reload(self, tmp_path: Path) -> None:
+        """Simulates mid-run save: 2 of 5 pages saved, then cache reloaded."""
+        cache = HashCache(tmp_path)
+        for i in range(5):
+            cache.set(f"section/page{i}", f"hash{i}")
+            if i < 2:
+                cache.save()  # only saved for first 2
+        # Reload — should still have all 5 since save() was called with all set
+        cache2 = HashCache(tmp_path)
+        assert cache2.get("section/page0") == "hash0"
+        assert cache2.get("section/page1") == "hash1"

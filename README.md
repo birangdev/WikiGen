@@ -154,8 +154,9 @@ cd my-project
 # 1. Scaffold config + folder structure
 wikigen init
 
-# 2. Set your API key (skip if using Claude Code or Ollama)
-export ANTHROPIC_API_KEY=sk-ant-...
+# 2. Set your API key — one of:
+export ANTHROPIC_API_KEY=sk-ant-...       # shell export (any terminal)
+echo 'ANTHROPIC_API_KEY=sk-ant-...' >> ~/.env  # persistent, picked up automatically
 
 # 3. Generate wiki
 wikigen ingest
@@ -163,6 +164,8 @@ wikigen ingest
 # 4. Browse your wiki
 ls wiki/
 ```
+
+wikigen resolves the API key from the shell environment first, then a `.env` file in the project directory, then `~/.env`. This means it works inside Claude Code, CI, and any environment where the key isn't explicitly exported to subprocesses.
 
 ---
 
@@ -199,7 +202,7 @@ Reads the entire codebase and generates the wiki from scratch.
 
 ```bash
 wikigen ingest                  # normal run
-wikigen ingest --force          # regenerate even cached pages
+wikigen ingest --force          # regenerate everything, ignore cache and resume state
 wikigen ingest --dry-run        # preview what would be generated
 wikigen ingest --concurrency 8  # parallel LLM requests
 ```
@@ -211,6 +214,10 @@ Pipeline:
 4. Generate each page in parallel, injecting relevant source chunks as context
 5. Write interlinked Markdown to `wiki/`
 6. Store SHA-256 hashes in `wiki/.wikigen_cache.json`
+
+**Progress** is shown as `[X/Y]` for every page so you can track large runs.
+
+**Resume** is automatic — if a run is interrupted (terminal closed, token limit, network drop), just re-run `wikigen ingest`. Pages that were already written to disk are detected and skipped instantly. Only the remaining pages are generated. The cache is saved after every single page, so nothing is lost on interruption.
 
 ### `wikigen update`
 
